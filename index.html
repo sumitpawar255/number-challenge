@@ -42,10 +42,25 @@ h1 span{color:var(--accent)}
 .tile{aspect-ratio:1;border:0;border-radius:clamp(12px,3.5vw,18px);background:var(--surface);color:hsl(var(--h) 75% 48%);
   font:900 clamp(22px,7vw,34px) "Trebuchet MS","Segoe UI",system-ui,sans-serif;cursor:pointer;box-shadow:var(--shadow);
   transition:transform .12s,background .15s,color .15s,box-shadow .12s;padding:0}
-@media (hover:hover){.tile:not(.done):hover{transform:translateY(-3px) scale(1.04)}}
-.tile:not(.done):active{transform:translateY(3px) scale(.94);box-shadow:none}
-.tile.done{background:var(--ok);color:var(--ok-ink);cursor:default;box-shadow:none;transform:scale(.9);animation:pop .3s ease-out}
-@keyframes pop{0%{transform:scale(1.25)}100%{transform:scale(.9)}}
+@media (hover:hover){.tile:hover{transform:translateY(-3px) scale(1.04)}}
+.tile:active{transform:translateY(3px) scale(.94);box-shadow:none}
+#strip{display:flex;flex-wrap:wrap;gap:5px;min-height:38px;padding:8px 10px;background:var(--surface);border-radius:16px;box-shadow:var(--shadow);align-content:flex-start}
+#strip:empty::before{content:"Selected numbers appear here";color:var(--muted);font-weight:700;font-size:14px;line-height:22px}
+#strip span{min-width:26px;padding:0 6px;height:22px;line-height:22px;text-align:center;border-radius:8px;background:var(--track);font-weight:900;font-size:13px}
+.lb{background:var(--surface);border-radius:22px;padding:14px 14px 12px;box-shadow:var(--shadow)}
+.lb h2{margin:0;font-size:20px;font-weight:900}
+.lb small{color:var(--muted);font-weight:700;font-size:13px}
+#lbList{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+#lbList li{display:grid;grid-template-columns:34px 1fr auto auto;gap:8px;align-items:center;padding:8px 10px;border-radius:12px;background:var(--bg);font-weight:800;font-size:15px}
+#lbList li.me{outline:2px solid var(--accent)}
+#lbList .rk{color:var(--accent);font-weight:900}
+#lbList .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#lbList .sc{font-variant-numeric:tabular-nums}
+#lbList .tm{color:var(--muted);font-variant-numeric:tabular-nums;font-size:13px}
+#lbList li.empty{display:block;text-align:center;color:var(--muted)}
+#nameIn{width:100%;font:800 20px "Trebuchet MS","Segoe UI",system-ui,sans-serif;padding:13px 14px;border-radius:14px;border:3px solid var(--track);background:var(--bg);color:var(--ink);margin:4px 0 14px;text-align:center}
+#nameIn:focus{outline:none;border-color:var(--accent)}
+#nameIn.err{border-color:var(--bad)}
 .tile.wrong{background:var(--bad);color:#fff;animation:shake .35s}
 @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(7px)}60%{transform:translateX(-5px)}80%{transform:translateX(4px)}}
 .btns{display:flex;gap:10px}
@@ -54,8 +69,8 @@ button.b.alt{background:var(--surface);color:var(--ink)}
 button.b:active{transform:translateY(3px);box-shadow:none}
 button.b:disabled{opacity:.4;cursor:not-allowed}
 button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-#over{position:fixed;inset:0;background:rgba(26,16,51,.7);display:none;align-items:center;justify-content:center;padding:20px;z-index:20;backdrop-filter:blur(3px)}
-#over.show{display:flex}
+#over,#nameModal{position:fixed;inset:0;background:rgba(26,16,51,.7);display:none;align-items:center;justify-content:center;padding:20px;z-index:20;backdrop-filter:blur(3px)}
+#over.show,#nameModal.show{display:flex}
 .card{background:var(--surface);color:var(--ink);border-radius:28px;padding:28px 22px;width:100%;max-width:340px;text-align:center;box-shadow:0 10px 0 rgba(0,0,0,.2);animation:rise .4s cubic-bezier(.3,1.5,.6,1)}
 @keyframes rise{from{transform:scale(.7);opacity:0}}
 .card .big{font-size:56px;line-height:1}
@@ -76,12 +91,27 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
     <div class="bar"><div id="fill"></div></div>
   </section>
   <div id="hint">Press Start Game to begin</div>
+  <div id="strip" aria-label="Selected numbers"></div>
   <div id="board" class="locked" aria-label="Number grid"></div>
   <div class="btns">
     <button class="b" id="start">Start Game</button>
     <button class="b alt" id="restart">Restart Game</button>
   </div>
+  <section class="lb">
+    <h2>Leaderboard <small id="lbMeta"></small></h2>
+    <ol id="lbList"></ol>
+  </section>
 </main>
+
+<div id="nameModal" role="dialog" aria-modal="true">
+  <div class="card">
+    <div class="big">👋</div>
+    <h2>Who’s playing?</h2>
+    <p>Your name goes on the leaderboard.</p>
+    <input id="nameIn" maxlength="16" placeholder="Enter your name" autocomplete="off">
+    <button class="b" id="go" style="width:100%">Let’s go</button>
+  </div>
+</div>
 
 <div id="over" role="dialog" aria-modal="true">
   <div class="card">
@@ -101,8 +131,28 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
       startBtn=document.getElementById('start'), restartBtn=document.getElementById('restart'),
       over=document.getElementById('over');
   // state: 'idle' (board locked) | 'ready' (waiting for 1) | 'running' | 'ended'
-  var state='idle', next=1, t0=0, timerId=null, prev=null, best=null, tiles=[];
-  try{best=parseFloat(localStorage.getItem('n25best'))||null}catch(e){}
+  var state='idle', next=1, t0=0, timerId=null, prev=null, tiles=[], player='', lastTime=0, recs=[], lastName='';
+  var stripEl=document.getElementById('strip');
+  try{recs=JSON.parse(localStorage.getItem('n25recs')||'[]')||[];lastName=localStorage.getItem('n25name')||''}catch(e){recs=[]}
+  function esc(s){return s.replace(/[&<>"']/g,function(c){return '&#'+c.charCodeAt(0)+';'})}
+  function cmp(a,b){return b.score-a.score||a.time-b.time||a.at-b.at}
+  function saveRec(score,time){
+    var r={name:player,score:score,time:time,at:Date.now()};recs.push(r);
+    if(recs.length>1000)recs=recs.slice(-1000);
+    try{localStorage.setItem('n25recs',JSON.stringify(recs))}catch(e){}
+    return r;
+  }
+  function renderLB(me){
+    var s=recs.slice().sort(cmp),list=document.getElementById('lbList');list.textContent='';
+    document.getElementById('lbMeta').textContent=recs.length+(recs.length===1?' game':' games')+' saved';
+    if(!s.length){var e=document.createElement('li');e.className='empty';e.textContent='No scores yet. Finish a round to take the top spot.';list.appendChild(e);return}
+    s.slice(0,10).forEach(function(r,i){
+      var li=document.createElement('li');if(r===me)li.className='me';
+      [['rk','#'+(i+1)],['nm',r.name],['sc',r.score+'/'+N],['tm',fmt(r.time)+'s']].forEach(function(p){
+        var sp=document.createElement('span');sp.className=p[0];sp.textContent=p[1];li.appendChild(sp)});
+      list.appendChild(li);
+    });
+  }
 
   function shuffle(){
     var a,tries=0;
@@ -123,11 +173,13 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
   function stopTimer(){if(timerId!==null){clearInterval(timerId);timerId=null}}
   function progress(){
     var d=next-1;countEl.textContent=d+'/'+N;fillEl.style.width=(d/N*100)+'%';
+    stripEl.textContent='';
+    for(var i=1;i<=d;i++){var c=document.createElement('span');c.textContent=i;stripEl.appendChild(c)}
   }
   function setHint(){
     if(state==='idle')hint.textContent='Press Start Game to begin';
     else if(state==='ready')hint.innerHTML='Tap <b>1</b> to start the clock';
-    else if(state==='running')hint.innerHTML='Find <b>'+next+'</b>';
+    else if(state==='running')hint.textContent='Player: '+player;
     else hint.textContent='';
   }
   function build(){
@@ -141,7 +193,7 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
   }
   function reset(unlock){
     stopTimer();clearConfetti();over.classList.remove('show');
-    state=unlock?'ready':'idle';next=1;
+    state=unlock?'ready':'idle';next=1;lastTime=0;
     build();progress();setTime(0);hud.classList.remove('urgent');document.body.classList.remove('urgent');
     board.classList.toggle('locked',!unlock);setHint();
   }
@@ -164,15 +216,17 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
     document.getElementById('oIcon').textContent=won?'\uD83C\uDFC6':'\u23F1\uFE0F';
     document.getElementById('oTitle').textContent=won?'You won!':'Time’s up!';
     var txt;
+    var rec=saveRec(done,won?el:(lastTime||LIMIT));
+    var rank=recs.slice().sort(cmp).indexOf(rec)+1;
     if(won){
       setTime(el);
-      var isBest=!best||el<best;
-      if(isBest){best=el;try{localStorage.setItem('n25best',String(el))}catch(e){}}
-      txt='You tapped all 25 in <strong>'+fmt(el)+' s</strong>.<br>'+(isBest?'New best time!':'Best time: '+fmt(best)+' s');
+      txt='You tapped all 25 in <strong>'+fmt(el)+' s</strong>.';
       confetti();
     }else{
-      txt='Final score: <strong>'+done+'/'+N+'</strong><br>'+(done>=20?'So close. Try again!':'Faster fingers next round.');
+      txt='Final score: <strong>'+done+'/'+N+'</strong>';
     }
+    txt+='<br>'+esc(player)+', you’re #'+rank+' on the leaderboard';
+    renderLB(rec);
     document.getElementById('oText').innerHTML=txt;
     setHint();
     setTimeout(function(){over.classList.add('show')},won?500:250);
@@ -186,7 +240,7 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
     if(state==='running'&&performance.now()-t0>=LIMIT){end(false);return}
     if(n===next){
       if(state==='ready')begin();
-      t.classList.add('done');
+      t.classList.add('done');lastTime=performance.now()-t0;
       next++;progress();
       if(next>N){end(true)}else setHint();
     }else{
@@ -212,12 +266,26 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
   board.addEventListener('pointerdown',function(e){if(e.pointerType==='mouse'&&e.button!==0)return;e.preventDefault();press(e)});
   board.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();press(e)}});
-  startBtn.addEventListener('click',function(){reset(true)});
-  restartBtn.addEventListener('click',function(){reset(true)});
-  document.getElementById('again').addEventListener('click',function(){reset(true)});
+  var nameModal=document.getElementById('nameModal'), nameIn=document.getElementById('nameIn');
+  function askName(){
+    reset(false);nameIn.classList.remove('err');nameIn.value=player||lastName;
+    nameModal.classList.add('show');setTimeout(function(){nameIn.focus();nameIn.select()},60);
+  }
+  function go(){
+    var v=nameIn.value.trim().slice(0,16);
+    if(!v){nameIn.classList.add('err');nameIn.focus();return}
+    player=v;lastName=v;try{localStorage.setItem('n25name',v)}catch(e){}
+    nameModal.classList.remove('show');reset(true);
+  }
+  startBtn.addEventListener('click',askName);
+  restartBtn.addEventListener('click',function(){player?reset(true):askName()});
+  document.getElementById('again').addEventListener('click',function(){player?reset(true):askName()});
+  document.getElementById('go').addEventListener('click',go);
+  nameIn.addEventListener('keydown',function(e){if(e.key==='Enter')go()});
+  nameModal.addEventListener('click',function(e){if(e.target===nameModal)nameModal.classList.remove('show')});
   document.addEventListener('visibilitychange',function(){if(state==='running')tick()});
 
-  reset(false);
+  reset(false);renderLB();
 })();
 </script>
 </body>
